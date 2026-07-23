@@ -22,19 +22,9 @@ from src.tools.details import get_product_details_logic
 async def app_lifespan(server: FastMCP):
     """Initializes system dependencies on startup and cleans them up on shutdown."""
     logger.info("Starting up ECommerce MCP Server...")
-    # Ensure Playwright browser binaries are present
-    ensure_playwright_chromium()
     # Init Cache DB tables
     await init_db()
-    # Warm up browser manager/process
-    try:
-        await browser_manager.get_browser()
-        logger.info("Stealth Browser Pool pre-warmed successfully.")
-    except Exception as e:
-        logger.critical(f"FATAL: Browser manager failed to warm up on startup: {e}")
-        
     yield
-    
     logger.info("Shutting down ECommerce MCP Server...")
     await browser_manager.close()
 

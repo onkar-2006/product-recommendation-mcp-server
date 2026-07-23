@@ -108,6 +108,10 @@ class BrowserManager:
     async def _start_browser(self) -> None:
         """Starts a fresh browser process."""
         logger.info("Initializing Playwright engine...")
+        
+        # Ensure browser binaries are present dynamically before starting Playwright
+        await asyncio.to_thread(ensure_playwright_chromium)
+        
         try:
             self._playwright = await async_playwright().start()
             
