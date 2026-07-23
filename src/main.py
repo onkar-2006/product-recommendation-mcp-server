@@ -1,8 +1,12 @@
 import sys
+import os
 import argparse
 import asyncio
-from fastmcp import FastMCP
 
+# Resolve pythonpath mapping when running or inspecting this script directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from fastmcp import FastMCP
 from config.settings import settings
 from src.core.logger import logger
 from src.core.db import init_db
