@@ -14,10 +14,16 @@ def ensure_playwright_chromium() -> None:
     import subprocess
     import sys
     
+    # Force HOME and PLAYWRIGHT_BROWSERS_PATH to /tmp on Linux container envs to bypass read-only filesystem errors
+    if sys.platform != "win32":
+        os.environ["HOME"] = "/tmp"
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/.cache/ms-playwright"
+        logger.info("Forced HOME=/tmp and PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright for container compatibility.")
+    
     # Check PLAYWRIGHT_BROWSERS_PATH from environment if set, else fallback to home cache
     if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
         cache_path = os.environ["PLAYWRIGHT_BROWSERS_PATH"]
-        logger.info(f"Using PLAYWRIGHT_BROWSERS_PATH from environment: {cache_path}")
+        logger.info(f"Using PLAYWRIGHT_BROWSERS_PATH: {cache_path}")
     else:
         home = os.path.expanduser("~")
         cache_path = os.path.join(home, ".cache", "ms-playwright")
