@@ -36,8 +36,13 @@ def init_db_sync() -> None:
     
     # Ensure parent data directory exists
     db_dir = os.path.dirname(db_path)
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir, exist_ok=True)
+    try:
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not create database directory {db_dir}: {e}. Falling back to /tmp/mcp_cache.db")
+        settings.sqlite_db_path = "/tmp/mcp_cache.db"
+        db_path = settings.sqlite_db_path
         
     try:
         conn = sqlite3.connect(db_path)

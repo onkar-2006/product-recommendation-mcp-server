@@ -12,9 +12,13 @@ def setup_logging() -> None:
     """
     # Initialize directory for persistent log files if specified
     if settings.log_file:
-        log_dir = os.path.dirname(settings.log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
+        try:
+            log_dir = os.path.dirname(settings.log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+        except Exception as e:
+            sys.stderr.write(f"WARNING: Could not create log directory {log_dir}: {e}. Falling back to /tmp/mcp.log\n")
+            settings.log_file = "/tmp/mcp.log"
 
     log_format = "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)d] - %(message)s"
     formatter = logging.Formatter(log_format)
@@ -44,8 +48,15 @@ def setup_logging() -> None:
             file_handler.setLevel(numeric_level)
             root_logger.addHandler(file_handler)
         except Exception as e:
-            # Fallback if log file cannot be opened (e.g. permission issues in docker)
-            sys.stderr.write(f"WARNING: Could not initialize log file handler: {e}\n")
+            sys.stderr.write(f"WARNING: Could not initialize log file handler for {settings.log_file}: {e}. Trying fallback to /tmp/mcp.log\n")
+            try:
+                settings.log_file = "/tmp/mcp.log"
+                file_handler = logging.FileHandler(settings.log_file, encoding="utf-8")
+                file_handler.setFormatter(formatter)
+                file_handler.setLevel(numeric_level)
+                root_logger.addHandler(file_handler)
+            except Exception as ex:
+                sys.stderr.write(f"WARNING: Could not initialize log file handler in /tmp: {ex}. Persistent logging disabled.\n")
 
     # Mute/redirect third party libraries that might pollute stdout
     logging.getLogger("pyee").setLevel(logging.WARNING)
