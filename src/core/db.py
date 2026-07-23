@@ -46,9 +46,8 @@ def init_db_sync() -> None:
         
     try:
         conn = sqlite3.connect(db_path)
-        # Enable WAL mode for parallel read/write performance
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
+        # Disable WAL for container overlay filesystem compatibility
+        conn.execute("PRAGMA journal_mode=DELETE;")
         
         with conn:
             conn.executescript(DB_INITIALIZATION_SQL)
@@ -71,7 +70,7 @@ def get_db_connection() -> sqlite3.Connection:
     try:
         conn = sqlite3.connect(settings.sqlite_db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA journal_mode=DELETE;")
         conn.execute("PRAGMA foreign_keys=ON;")
         return conn
     except Exception as e:
