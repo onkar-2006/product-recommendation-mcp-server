@@ -17,10 +17,7 @@ from src.tools.compare import compare_prices_logic
 from src.tools.details import get_product_details_logic
 
 # Create the primary FastMCP Server instance
-mcp = FastMCP(
-    "ECommerce-MCP-Server",
-    description="Production-grade e-commerce search, price comparison, and details scraper for Amazon, Flipkart, Meesho, and Myntra."
-)
+mcp = FastMCP("ECommerce-MCP-Server")
 
 # 1. MCP Tools Registrations
 
