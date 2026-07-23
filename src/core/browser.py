@@ -14,19 +14,24 @@ def ensure_playwright_chromium() -> None:
     import subprocess
     import sys
     
-    # Check ~/.cache/ms-playwright/ for chromium binaries
-    home = os.path.expanduser("~")
-    cache_path = os.path.join(home, ".cache", "ms-playwright")
+    # Check PLAYWRIGHT_BROWSERS_PATH from environment if set, else fallback to home cache
+    if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+        cache_path = os.environ["PLAYWRIGHT_BROWSERS_PATH"]
+        logger.info(f"Using PLAYWRIGHT_BROWSERS_PATH from environment: {cache_path}")
+    else:
+        home = os.path.expanduser("~")
+        cache_path = os.path.join(home, ".cache", "ms-playwright")
+        logger.info(f"Using default home cache path: {cache_path}")
     
     has_chromium = False
     if os.path.exists(cache_path):
         for root, dirs, files in os.walk(cache_path):
-            if "chrome-linux" in root or "chrome" in files or "chrome.exe" in files:
+            if "chrome-linux" in root or "chrome" in files or "chrome.exe" in files or "chrome-headless-shell" in files:
                 has_chromium = True
                 break
                 
     if not has_chromium:
-        logger.info("Playwright Chromium browser binary not found in cache. Auto-installing...")
+        logger.info(f"Playwright Chromium browser binary not found in {cache_path}. Auto-installing...")
         try:
             # Invokes 'playwright install chromium' using the current Python execution context
             result = subprocess.run(
@@ -40,7 +45,7 @@ def ensure_playwright_chromium() -> None:
         except Exception as e:
             logger.error(f"Failed to auto-install Playwright Chromium: {e}")
     else:
-        logger.info("Playwright Chromium browser binary already verified in cache.")
+        logger.info(f"Playwright Chromium browser binary already verified in {cache_path}.")
 
 # List of modern, realistic user agents for rotation
 USER_AGENTS = [
