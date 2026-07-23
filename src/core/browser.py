@@ -14,20 +14,38 @@ def ensure_playwright_chromium() -> None:
     import subprocess
     import sys
     
-    # Force HOME and PLAYWRIGHT_BROWSERS_PATH to /tmp on Linux container envs to bypass read-only filesystem errors
+    # 1. Search for a pre-baked Chromium installation in standard container build paths
+    prebaked_paths = [
+        "/root/.cache/ms-playwright",
+        "/home/root/.cache/ms-playwright",
+        os.path.expanduser("~/.cache/ms-playwright")
+    ]
+    
+    prebaked_path = None
+    for path in prebaked_paths:
+        if os.path.exists(path):
+            # Check if Chromium binary is in this folder
+            for root, dirs, files in os.walk(path):
+                if "chrome-linux" in root or "chrome" in files or "chrome-headless-shell" in files:
+                    prebaked_path = path
+                    break
+            if prebaked_path:
+                break
+                
+    # 2. If pre-baked Chromium is found, configure Playwright to use it directly from the read-only container layer
+    if prebaked_path:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = prebaked_path
+        logger.info(f"Detected pre-baked Playwright Chromium at {prebaked_path}. Overriding PLAYWRIGHT_BROWSERS_PATH to run read-only.")
+        return
+        
+    # 3. Fallback: If no pre-baked Chromium is found, download it at runtime to /tmp
+    logger.info("No pre-baked Playwright Chromium found. Setting up runtime fallback inside /tmp...")
     if sys.platform != "win32":
         os.environ["HOME"] = "/tmp"
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/tmp/.cache/ms-playwright"
-        logger.info("Forced HOME=/tmp and PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright for container compatibility.")
-    
-    # Check PLAYWRIGHT_BROWSERS_PATH from environment if set, else fallback to home cache
-    if "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
-        cache_path = os.environ["PLAYWRIGHT_BROWSERS_PATH"]
-        logger.info(f"Using PLAYWRIGHT_BROWSERS_PATH: {cache_path}")
-    else:
-        home = os.path.expanduser("~")
-        cache_path = os.path.join(home, ".cache", "ms-playwright")
-        logger.info(f"Using default home cache path: {cache_path}")
+        logger.info("Forced HOME=/tmp and PLAYWRIGHT_BROWSERS_PATH=/tmp/.cache/ms-playwright for runtime fallback.")
+        
+    cache_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", os.path.expanduser("~/.cache/ms-playwright"))
     
     has_chromium = False
     if os.path.exists(cache_path):

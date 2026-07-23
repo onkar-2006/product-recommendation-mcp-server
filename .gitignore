@@ -43,3 +43,6 @@ logs/*.log
 .pytest_cache/
 .coverage
 htmlcov/
+
+
+test_client.py
