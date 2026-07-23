@@ -58,22 +58,47 @@ class BaseScraper(ABC):
         """
         Scans page markup for standard anti-bot / Cloudflare trigger signatures.
         """
+        # Extract title from HTML content dynamically to check for successful loads
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", html_content, re.IGNORECASE | re.DOTALL)
+        title = title_match.group(1).strip() if title_match else ""
+        title_lower = title.lower()
+        
+        # If the page title matches standard shopping and search layouts, it is not blocked
+        if any(keyword in title_lower for keyword in ["buy", "shop", "search", "price", "flipkart", "myntra"]):
+            # Exclude actual Cloudflare/security blocks containing the site name
+            if not any(cf in title_lower for cf in ["cloudflare", "attention required", "access denied", "just a moment"]):
+                return False
+                
         bot_signatures = [
-            "captcha",
             "robot check",
             "access denied",
             "attention required",
             "cloudflare",
-            "security check",
             "verify you are human",
-            "automated requests",
             "blocked request",
             "please wait while we verify"
         ]
+        
+        challenge_markers = [
+            "id=\"challenge-form\"",
+            "id=\"challenge-running\"",
+            "class=\"cf-turnstile\"",
+            "id=\"px-captcha\"",
+            "g-recaptcha"
+        ]
+        
         lower_html = html_content.lower()
+        
+        # Check specific challenge elements in the markup
+        for marker in challenge_markers:
+            if marker.lower() in lower_html:
+                return True
+                
+        # Check general bot signatures
         for signature in bot_signatures:
             if signature in lower_html:
                 return True
+                
         return False
 
     def clean_price(self, price_str: Optional[str]) -> float:
@@ -120,7 +145,36 @@ class BaseScraper(ABC):
             logger.warning(f"Could not parse review count '{count_str}': {e}")
         return None
 
-    async def execute_with_retry(self, action_coro, platform: str) -> Any:
+    async def wait_for_page_settle(self, page: Page, timeout_ms: int = 3000) -> None:
+        """Waits for navigation and network to settle before querying content."""
+        try:
+            await page.wait_for_load_state("load", timeout=timeout_ms)
+        except Exception:
+            pass
+        try:
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        except Exception:
+            pass
+
+    async def get_page_content_safe(self, page: Page) -> str:
+        """Retrieves page content safely, waiting for any active navigations to finish if needed."""
+        for attempt in range(3):
+            try:
+                return await page.content()
+            except Exception as e:
+                err_msg = str(e)
+                if "navigating" in err_msg.lower() or "navigation" in err_msg.lower():
+                    logger.info("Page content retrieval deferred because page is actively navigating. Waiting for load state...")
+                    try:
+                        await page.wait_for_load_state("load", timeout=3000)
+                    except Exception:
+                        pass
+                else:
+                    raise
+        # Final fallback
+        return await page.content()
+
+    async def execute_with_retry(self, action_func, platform: str) -> Any:
         """
         Executes a scraping operation within a Tenacity retry block.
         Only retries when a ScrapingBlockedError is raised (e.g. to cycle proxies/contexts).
@@ -135,7 +189,7 @@ class BaseScraper(ABC):
                 with attempt:
                     if attempt.retry_state.attempt_number > 1:
                         logger.info(f"Retrying scraping query on {platform} (Attempt {attempt.retry_state.attempt_number})")
-                    return await action_coro
+                    return await action_func()
         except ScrapingBlockedError as sbe:
             logger.error(f"Scraping permanently blocked on {platform} after multiple attempts: {sbe}")
             raise

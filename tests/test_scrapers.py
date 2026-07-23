@@ -98,7 +98,7 @@ async def test_amazon_scraper_search():
         
     try:
         # Acquire a context to configure the route interception
-        browser = await .get_browser()
+        browser = await browser_manager.get_browser()
         async with browser_manager.page_context() as page:
             await page.route("**/s?k=*", route_handler)
             

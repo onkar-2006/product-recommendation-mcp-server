@@ -20,11 +20,12 @@ class AmazonScraper(BaseScraper):
             async with browser_manager.page_context() as page:
                 try:
                     # Navigate with wait_until to make sure initial layout loaded
-                    await page.goto(search_url, wait_until="commit")
+                    await page.goto(search_url, wait_until="domcontentloaded")
+                    await self.wait_for_page_settle(page)
                     await self.random_delay(1000, 2000)
                     
                     # 1. Bot Protection Check
-                    html_content = await page.content()
+                    html_content = await self.get_page_content_safe(page)
                     if self.detect_bot_protection(html_content) or "captcha" in page.url.lower():
                         raise ScrapingBlockedError("Amazon bot detection triggered (CAPTCHA / Robot Check page).")
                     
@@ -32,9 +33,22 @@ class AmazonScraper(BaseScraper):
                     try:
                         await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=8000)
                     except Exception:
+                        current_html = await self.get_page_content_safe(page)
+                        # Save debug html
+                        try:
+                            import os
+                            os.makedirs("logs", exist_ok=True)
+                            with open("logs/debug_amazon_search.html", "w", encoding="utf-8") as f:
+                                f.write(current_html)
+                            logger.warning("Saved debug page for amazon search to logs/debug_amazon_search.html")
+                        except Exception as log_err:
+                            logger.error(f"Failed to save debug html: {log_err}")
+                            
                         # Check if it was blocked or if there really are 0 results
-                        if "no results for" in html_content.lower() or "did not match any products" in html_content.lower():
+                        if "no results for" in current_html.lower() or "did not match any products" in current_html.lower():
                             return []
+                        if self.detect_bot_protection(current_html) or "captcha" in page.url.lower():
+                            raise ScrapingBlockedError("Amazon bot detection triggered (CAPTCHA / Robot Check page).")
                         raise ProductNotFoundError(f"Amazon search results selector not found for: '{query}'")
                     
                     # Ensure lazy-loaded cards render
@@ -42,9 +56,10 @@ class AmazonScraper(BaseScraper):
                     
                     # 3. Extract items
                     items = await page.query_selector_all('[data-component-type="s-search-result"]')
+                    logger.info(f"Amazon Scraper: Found {len(items)} raw search result cards.")
                     products: List[Product] = []
                     
-                    for item in items:
+                    for idx, item in enumerate(items):
                         if len(products) >= limit:
                             break
                         
@@ -52,26 +67,44 @@ class AmazonScraper(BaseScraper):
                             # Skip sponsored ads (they contain sponsored label or class)
                             sponsored_el = await item.query_selector(".puis-sponsored-label-text")
                             if sponsored_el:
+                                logger.info(f"Card {idx}: Skipped sponsored ad.")
                                 continue
                                 
                             # Title
-                            title_el = await item.query_selector("h2 a span")
-                            if not title_el:
+                            h3_el = await item.query_selector("h3 a")
+                            title = None
+                            if h3_el:
+                                title = (await h3_el.inner_text()).strip()
+                            else:
+                                url_el = await item.query_selector("h2 a")
+                                if url_el:
+                                    title = (await url_el.inner_text()).strip()
+                                    
+                            if not title:
+                                # Fallback: try raw h2
+                                h2_el = await item.query_selector("h2")
+                                if h2_el:
+                                    title = (await h2_el.inner_text()).strip()
+                                    
+                            if not title:
+                                logger.info(f"Card {idx}: Skipped due to missing title element.")
                                 continue
-                            title = (await title_el.inner_text()).strip()
                             
                             # Product URL
-                            url_el = await item.query_selector("h2 a")
+                            url_el = await item.query_selector("h2 a, a.a-link-normal")
                             if not url_el:
+                                logger.info(f"Card {idx}: Skipped due to missing URL element.")
                                 continue
                             href = await url_el.get_attribute("href")
                             if not href:
+                                logger.info(f"Card {idx}: Skipped due to empty href.")
                                 continue
                             product_url = urllib.parse.urljoin("https://www.amazon.in", href)
                             
                             # Price & Original Price
-                            price_el = await item.query_selector(".a-price .a-offscreen")
+                            price_el = await item.query_selector(".a-price .a-offscreen, .a-price-whole")
                             if not price_el:
+                                logger.info(f"Card {idx}: Skipped due to missing price element.")
                                 continue # Skip items without pricing
                             price_text = await price_el.inner_text()
                             price = self.clean_price(price_text)
@@ -79,7 +112,7 @@ class AmazonScraper(BaseScraper):
                             # MRP (Original Price)
                             original_price = None
                             discount = None
-                            original_price_el = await item.query_selector(".a-price.a-text-price span.a-offscreen")
+                            original_price_el = await item.query_selector(".a-price.a-text-price span.a-offscreen, .a-text-strike")
                             if original_price_el:
                                 original_price_text = await original_price_el.inner_text()
                                 original_price = self.clean_price(original_price_text)
@@ -88,12 +121,12 @@ class AmazonScraper(BaseScraper):
                                     discount = f"{discount_pct}% OFF"
                             
                             # Image
-                            img_el = await item.query_selector("img.s-image")
+                            img_el = await item.query_selector("img.s-image, img")
                             image_url = await img_el.get_attribute("src") if img_el else None
                             
                             # Ratings
                             rating = None
-                            rating_el = await item.query_selector("span.a-icon-alt")
+                            rating_el = await item.query_selector("span.a-icon-alt, i.a-icon-star span")
                             if rating_el:
                                 rating_text = await rating_el.inner_text()
                                 # Extracts e.g. "4.2 out of 5 stars" -> 4.2
@@ -103,7 +136,7 @@ class AmazonScraper(BaseScraper):
                                     
                             # Review Count
                             review_count = None
-                            review_el = await item.query_selector("span.a-size-base.s-underline-text")
+                            review_el = await item.query_selector("span.a-size-base.s-underline-text, span.a-size-base")
                             if review_el:
                                 review_text = await review_el.inner_text()
                                 review_count = self.parse_review_count(review_text)
@@ -125,23 +158,35 @@ class AmazonScraper(BaseScraper):
                             logger.debug(f"Skipping Amazon card due to parsing exception: {card_err}")
                             continue
                             
+                    if len(products) == 0 and len(items) > 0:
+                        logger.warning("Amazon Scraper: Found search result cards but parsed 0 products. Saving debug HTML...")
+                        current_html = await self.get_page_content_safe(page)
+                        try:
+                            import os
+                            os.makedirs("logs", exist_ok=True)
+                            with open("logs/debug_amazon_search.html", "w", encoding="utf-8") as f:
+                                f.write(current_html)
+                        except Exception as log_err:
+                            logger.error(f"Failed to save debug html: {log_err}")
+                            
                     return products
                 except Exception as e:
-                    if self.detect_bot_protection(await page.content()):
+                    if self.detect_bot_protection(await self.get_page_content_safe(page)):
                         raise ScrapingBlockedError("Blocked by Amazon bot protection during search.")
                     raise e
                     
-        return await self.execute_with_retry(_scrape(), "amazon")
+        return await self.execute_with_retry(_scrape, "amazon")
 
     async def get_details(self, url: str) -> ProductDetails:
         async def _scrape() -> ProductDetails:
             logger.info(f"Navigating to Amazon product details: {url}")
             async with browser_manager.page_context() as page:
-                await page.goto(url, wait_until="commit")
+                await page.goto(url, wait_until="domcontentloaded")
+                await self.wait_for_page_settle(page)
                 await self.random_delay(1500, 2500)
                 
                 # Check for blocks
-                html_content = await page.content()
+                html_content = await self.get_page_content_safe(page)
                 if self.detect_bot_protection(html_content):
                     raise ScrapingBlockedError("Amazon bot detection triggered on product detail page.")
                 
@@ -260,5 +305,5 @@ class AmazonScraper(BaseScraper):
                     specifications=specifications if specifications else None,
                     merchant=merchant
                 )
-        return await self.execute_with_retry(_scrape(), "amazon")
+        return await self.execute_with_retry(_scrape, "amazon")
 import re

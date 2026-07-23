@@ -19,11 +19,12 @@ class FlipkartScraper(BaseScraper):
             logger.info(f"Navigating to Flipkart search: {search_url}")
             async with browser_manager.page_context() as page:
                 try:
-                    await page.goto(search_url, wait_until="commit")
+                    await page.goto(search_url, wait_until="domcontentloaded")
+                    await self.wait_for_page_settle(page)
                     await self.random_delay(1000, 2000)
 
                     # 1. Bot Protection Check
-                    html_content = await page.content()
+                    html_content = await self.get_page_content_safe(page)
                     if self.detect_bot_protection(html_content):
                         raise ScrapingBlockedError("Blocked by Flipkart bot protection.")
 
@@ -33,8 +34,22 @@ class FlipkartScraper(BaseScraper):
                     try:
                         await page.wait_for_selector(card_selector, timeout=8000)
                     except Exception:
-                        if "no results found" in html_content.lower() or "did not match any products" in html_content.lower():
+                        current_html = await self.get_page_content_safe(page)
+                        # Save debug html
+                        try:
+                            import os
+                            os.makedirs("logs", exist_ok=True)
+                            with open("logs/debug_flipkart_search.html", "w", encoding="utf-8") as f:
+                                f.write(current_html)
+                            logger.warning("Saved debug page for flipkart search to logs/debug_flipkart_search.html")
+                        except Exception as log_err:
+                            logger.error(f"Failed to save debug html: {log_err}")
+                            
+                        # Check if it was blocked or if there really are 0 results
+                        if "no results found" in current_html.lower() or "did not match any products" in current_html.lower():
                             return []
+                        if self.detect_bot_protection(current_html) or "captcha" in page.url.lower():
+                            raise ScrapingBlockedError("Blocked by Flipkart bot protection.")
                         raise ProductNotFoundError(f"Flipkart search results selector not found for query: '{query}'")
 
                     await self.human_like_scroll(page, max_scrolls=2)
@@ -58,58 +73,52 @@ class FlipkartScraper(BaseScraper):
                             product_url = urllib.parse.urljoin("https://www.flipkart.com", href)
 
                             # 2. Title & Brand
-                            # Flipkart titles are sometimes split: Brand (e.g. div._2WkVRV) + short description (a.IRpwTa)
-                            title = ""
+                            # Check for split Brand + Description layout first (fashion/apparel)
                             brand_el = await item.query_selector("div._2WkVRV")
                             desc_el = await item.query_selector("a.IRpwTa")
                             
-                            # Fallbacks
-                            alt_title_el = await item.query_selector("a.wscy5P")
-                            alt_title_el_2 = await item.query_selector("div.KzDPHZ")
-
                             if brand_el and desc_el:
                                 brand = (await brand_el.inner_text()).strip()
                                 desc = (await desc_el.inner_text()).strip()
                                 title = f"{brand} - {desc}"
-                            elif alt_title_el:
-                                title = (await alt_title_el.inner_text()).strip()
-                            elif alt_title_el_2:
-                                title = (await alt_title_el_2.inner_text()).strip()
                             else:
-                                # Get title attribute or inner text of any anchor
-                                text_el = await item.query_selector("a")
-                                if text_el:
-                                    title = (await text_el.inner_text()).strip().split("\n")[0]
+                                # Fallback to single card title selectors (electronics/mobiles)
+                                title_el = await item.query_selector("div.RG5Slk, div.KzDPHZ, div._4rR01T, a.wscy5P, a.IRpwTa")
+                                if title_el:
+                                    title = (await title_el.inner_text()).strip()
+                                else:
+                                    text_el = await item.query_selector("a")
+                                    if text_el:
+                                        title = (await text_el.inner_text()).strip().split("\n")[0]
                             
                             if not title or len(title) < 3:
                                 continue
 
                             # 3. Price & Discount
-                            # Common pricing classes: div.Nx93jA, div._30jeq3
-                            price_el = await item.query_selector("div.Nx93jA, div._30jeq3")
+                            price_el = await item.query_selector("div.hZ3P6w, div.DeU9vF, div.Nx93jA, div._30jeq3")
                             if not price_el:
                                 continue
                             price = self.clean_price(await price_el.inner_text())
 
                             original_price = None
-                            original_price_el = await item.query_selector("div.y30dLL, div._3I9_ca")
+                            original_price_el = await item.query_selector("div.kRYCnD, div.gxR4EY, div.y30dLL, div._3I9_ca")
                             if original_price_el:
                                 original_price = self.clean_price(await original_price_el.inner_text())
 
                             discount = None
-                            discount_el = await item.query_selector("div.UkC1ED, div._3Ay6Sb")
+                            discount_el = await item.query_selector("div.HQe8jr, div.UkC1ED, div._3Ay6Sb")
                             if discount_el:
                                 discount = (await discount_el.inner_text()).strip()
 
                             # 4. Image
-                            img_el = await item.query_selector("img.DByo1Z, img._396cs4")
+                            img_el = await item.query_selector("img.UCc1lI, img.DByo1Z, img._396cs4, img")
                             image_url = None
                             if img_el:
                                 image_url = await img_el.get_attribute("src")
 
                             # 5. Rating & Reviews
                             rating = None
-                            rating_el = await item.query_selector("div.XQD0XM, div._3LWZlK")
+                            rating_el = await item.query_selector("div.MKiFS6, div.XQD0XM, div._3LWZlK")
                             if rating_el:
                                 try:
                                     rating_text = (await rating_el.inner_text()).strip()
@@ -118,7 +127,7 @@ class FlipkartScraper(BaseScraper):
                                     pass
 
                             review_count = None
-                            review_el = await item.query_selector("span.W5ryCn, span._2_R_DZ")
+                            review_el = await item.query_selector("span.PvbNMB, span.W5ryCn, span._2_R_DZ")
                             if review_el:
                                 review_text = await review_el.inner_text()
                                 review_count = self.parse_review_count(review_text)
@@ -142,20 +151,21 @@ class FlipkartScraper(BaseScraper):
 
                     return products
                 except Exception as e:
-                    if self.detect_bot_protection(await page.content()):
+                    if self.detect_bot_protection(await self.get_page_content_safe(page)):
                         raise ScrapingBlockedError("Blocked by Flipkart bot protection during search.")
                     raise e
 
-        return await self.execute_with_retry(_scrape(), "flipkart")
+        return await self.execute_with_retry(_scrape, "flipkart")
 
     async def get_details(self, url: str) -> ProductDetails:
         async def _scrape() -> ProductDetails:
             logger.info(f"Navigating to Flipkart product details: {url}")
             async with browser_manager.page_context() as page:
-                await page.goto(url, wait_until="commit")
+                await page.goto(url, wait_until="domcontentloaded")
+                await self.wait_for_page_settle(page)
                 await self.random_delay(1500, 2500)
 
-                html_content = await page.content()
+                html_content = await self.get_page_content_safe(page)
                 if self.detect_bot_protection(html_content):
                     raise ScrapingBlockedError("Blocked by Flipkart bot protection on product detail page.")
 
@@ -250,4 +260,4 @@ class FlipkartScraper(BaseScraper):
                     specifications=specifications if specifications else None,
                     merchant=merchant
                 )
-        return await self.execute_with_retry(_scrape(), "flipkart")
+        return await self.execute_with_retry(_scrape, "flipkart")

@@ -170,12 +170,40 @@ class BrowserManager:
             ]
             launch_args = [arg for arg in launch_args if arg]
 
-            self._browser = await self._playwright.chromium.launch(
-                headless=settings.headless,
-                args=launch_args,
-                proxy=proxy
-            )
-            logger.info("Playwright Chromium browser started successfully.")
+            # On Windows locally, run Chrome or Edge if available for realistic TLS/JA3/JA4 fingerprinting
+            channel = None
+            if sys.platform == "win32" and not settings.proxy_server:
+                channel = "chrome"
+                
+            try:
+                self._browser = await self._playwright.chromium.launch(
+                    headless=settings.headless,
+                    args=launch_args,
+                    proxy=proxy,
+                    channel=channel
+                )
+                logger.info(f"Playwright browser started successfully using channel={channel or 'default'}.")
+            except Exception as launch_err:
+                if channel == "chrome":
+                    logger.warning(f"Failed to launch Chrome channel ({launch_err}). Falling back to Edge channel...")
+                    try:
+                        self._browser = await self._playwright.chromium.launch(
+                            headless=settings.headless,
+                            args=launch_args,
+                            proxy=proxy,
+                            channel="msedge"
+                        )
+                        logger.info("Playwright browser started successfully using channel=msedge.")
+                    except Exception as edge_err:
+                        logger.warning(f"Failed to launch Edge channel ({edge_err}). Falling back to default Chromium...")
+                        self._browser = await self._playwright.chromium.launch(
+                            headless=settings.headless,
+                            args=launch_args,
+                            proxy=proxy
+                        )
+                        logger.info("Playwright browser started successfully using default Chromium.")
+                else:
+                    raise launch_err
         except Exception as e:
             logger.error(f"Failed to start Playwright browser: {e}")
             await self._close_under_lock()
@@ -237,8 +265,8 @@ class BrowserManager:
             height = random.randint(720, 1080)
             
             context = await browser.new_context(
-                user_agent=ua,
                 viewport={"width": width, "height": height},
+                user_agent=ua,
                 accept_downloads=False,
                 extra_http_headers={
                     "Accept-Language": "en-US,en;q=0.9",
@@ -249,8 +277,8 @@ class BrowserManager:
             # Set default navigation timeout
             context.set_default_timeout(settings.timeout_ms)
             
-            # 3. Apply Stealth Injections on Document Creation
-            if settings.stealth_mode:
+            # 3. Apply Stealth Injections on Document Creation (Only in headless mode to prevent signature mismatches)
+            if settings.stealth_mode and settings.headless:
                 await context.add_init_script(STEALTH_INIT_SCRIPT)
                 
             page = await context.new_page()

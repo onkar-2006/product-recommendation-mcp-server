@@ -33,21 +33,40 @@ mcp = FastMCP("ECommerce-MCP-Server", lifespan=app_lifespan)
 
 # 1. MCP Tools Registrations
 
-@mcp.tool(name="search_products", description="Search products across one or more e-commerce platforms (amazon, flipkart, meesho, myntra) in parallel.")
+@mcp.tool(
+    name="search_products",
+    description=(
+        "Search products across one or more e-commerce platforms (amazon, flipkart, meesho, myntra) in parallel. "
+        "IMPORTANT: Always present the results in a structured markdown comparison format for the user, "
+        "automatically including the product title, price, discount/MRP, rating, a clickable direct product URL, "
+        "and embed the product image directly (e.g. ![Image](image_url)) so the user sees the real product photo."
+    )
+)
 async def search_products(
     query: str,
     platforms: list[str] = ["amazon", "flipkart", "meesho", "myntra"],
-    limit: int = 5
+    limit: int | str = 5
 ) -> list[Product]:
     """Search products across platforms in parallel."""
     try:
-        return await search_products_logic(query, platforms, limit)
+        limit_val = int(limit)
+    except Exception:
+        limit_val = 5
+    try:
+        return await search_products_logic(query, platforms, limit_val)
     except Exception as e:
         logger.error(f"Error in search_products tool: {e}")
         # Re-raise so the protocol sends the error message back to the LLM
         raise
 
-@mcp.tool(name="compare_prices", description="Query multiple e-commerce sites for a product and return a ranked comparison list from cheapest to most expensive.")
+@mcp.tool(
+    name="compare_prices",
+    description=(
+        "Query multiple e-commerce sites for a product and return a ranked comparison list from cheapest to most expensive. "
+        "IMPORTANT: Always present the ranked comparison in a clean markdown table or list, automatically including "
+        "the product title, platform name, selling price, direct product link, and embed the product image (e.g. ![Image](image_url)) for each entry."
+    )
+)
 async def compare_prices(
     query: str,
     platforms: list[str] = ["amazon", "flipkart", "meesho", "myntra"]
@@ -59,7 +78,14 @@ async def compare_prices(
         logger.error(f"Error in compare_prices tool: {e}")
         raise
 
-@mcp.tool(name="get_product_details", description="Retrieve detailed specifications, images, pricing, and seller name for a direct product URL.")
+@mcp.tool(
+    name="get_product_details",
+    description=(
+        "Retrieve detailed specifications, images, pricing, and seller name for a direct product URL. "
+        "IMPORTANT: Always present the details in a structured markdown specification list, automatically "
+        "including the product title, seller, detailed attributes, direct link, and embed the product image (e.g. ![Image](image_url)) so it displays inline."
+    )
+)
 async def get_product_details(
     url: str,
     platform: str

@@ -21,11 +21,12 @@ class MyntraScraper(BaseScraper):
             logger.info(f"Navigating to Myntra search: {search_url}")
             async with browser_manager.page_context() as page:
                 try:
-                    await page.goto(search_url, wait_until="commit")
+                    await page.goto(search_url, wait_until="domcontentloaded")
+                    await self.wait_for_page_settle(page)
                     await self.random_delay(1500, 2500)
 
                     # 1. Bot check
-                    html_content = await page.content()
+                    html_content = await self.get_page_content_safe(page)
                     if self.detect_bot_protection(html_content):
                         raise ScrapingBlockedError("Blocked by Myntra bot protection.")
 
@@ -129,20 +130,21 @@ class MyntraScraper(BaseScraper):
 
                     return products
                 except Exception as e:
-                    if self.detect_bot_protection(await page.content()):
+                    if self.detect_bot_protection(await self.get_page_content_safe(page)):
                         raise ScrapingBlockedError("Blocked by Myntra bot protection during search.")
                     raise e
 
-        return await self.execute_with_retry(_scrape(), "myntra")
+        return await self.execute_with_retry(_scrape, "myntra")
 
     async def get_details(self, url: str) -> ProductDetails:
         async def _scrape() -> ProductDetails:
             logger.info(f"Navigating to Myntra product details: {url}")
             async with browser_manager.page_context() as page:
-                await page.goto(url, wait_until="commit")
+                await page.goto(url, wait_until="domcontentloaded")
+                await self.wait_for_page_settle(page)
                 await self.random_delay(1500, 2500)
 
-                html_content = await page.content()
+                html_content = await self.get_page_content_safe(page)
                 if self.detect_bot_protection(html_content):
                     raise ScrapingBlockedError("Blocked by Myntra bot protection on product detail page.")
 
@@ -241,7 +243,7 @@ class MyntraScraper(BaseScraper):
                     specifications=specifications if specifications else None,
                     merchant=None
                 )
-        return await self.execute_with_retry(_scrape(), "myntra")
+        return await self.execute_with_retry(_scrape, "myntra")
 
     # Helper JSON Script Parsers
 

@@ -176,7 +176,7 @@ To integrate this local server directly into **Claude Desktop**:
      "mcpServers": {
        "ecommerce-scraper-local": {
          "command": "c:\\Users\\DELL\\Desktop\\Ecommerce-mcp\\.venv\\Scripts\\python.exe",
-         "args": ["c:\\Users\\DELL\\Desktop\\Ecommerce-mcp\\src\\main.py", "--transport", "stdio"],
+         "args": ["c:\\Users\\DELL\\Desktop\\Ecommerce-mcp\\src\\main.py", "--transport", "stdio", "--headful"],
          "env": {
            "GROQ_API_KEY": "your_groq_api_key_here"
          }
@@ -184,6 +184,7 @@ To integrate this local server directly into **Claude Desktop**:
      }
    }
    ```
+   *(Note: You can omit `"--headful"` from the args if you prefer the scraping to run completely in the background without browser windows appearing).*
 3. Restart Claude Desktop. The tools will show up in the prompt box!
 
 #### Option C: Connecting to Cursor (Local STDIO Mode)
@@ -193,8 +194,39 @@ To add this local server to **Cursor**:
 3. Fill in the details:
    * **Name**: `ecommerce-local`
    * **Type**: `command`
-   * **Command**: `c:\Users\DELL\Desktop\Ecommerce-mcp\.venv\Scripts\python.exe c:\Users\DELL\Desktop\Ecommerce-mcp\src\main.py --transport stdio`
+   * **Command**: `c:\Users\DELL\Desktop\Ecommerce-mcp\.venv\Scripts\python.exe c:\Users\DELL\Desktop\Ecommerce-mcp\src\main.py --transport stdio --headful`
 4. Click **Save**.
+
+---
+
+## 💡 Bypassing Bot Detection & Offline Access (Manual Run)
+
+Since e-commerce platforms (Amazon, Flipkart, Meesho, Myntra) use advanced anti-bot systems (like Akamai, Cloudflare, or protocol blocks at the HTTP/2 frame layer), headless automated scraping from a datacenter or local terminal can sometimes get blocked.
+
+To use the scraper reliably on your local machine, you should run it in **Manual / Headful Mode** or configure proxies:
+
+### 1. Running in Headful Mode (Manual Verification)
+Running the server in headful mode launches the real Chromium browser window on your desktop. This is highly recommended when scraping locally:
+* **How to run**: Change `HEADLESS=false` in your `.env` file or start the server using the `--headful` CLI flag:
+  ```bash
+  .venv\Scripts\python.exe src/main.py --transport sse --port 9000 --headful
+  ```
+* **Bypassing CAPTCHAs**: If a website (like Amazon or Flipkart) displays a robot verification screen, you will see the browser window pop up on your screen. You can simply solve the CAPTCHA manually in the browser window. 
+* **State Preservation**: Once solved, the server automatically saves session cookies. Subsequent searches on that platform will use the cookies and bypass challenges automatically.
+
+### 2. Offline Mode (WAL Caching)
+The server has a built-in SQLite Write-Ahead Logging cache system located at `data/mcp_cache.db`:
+* **Zero Web Traffic**: Search queries are cached for 10 minutes and deep product specifications/details are cached for 24 hours.
+* **Offline Access**: If you search for a query or product that has already been scraped, the MCP server returns it instantly from the SQLite cache database *without triggering any browser actions* and *without requiring an internet connection*.
+* This allows you to work completely offline, query cached products instantaneously, and protect against bot blocks!
+
+### 3. Setting Up Rotating Proxies (Optional)
+If you wish to run headless scraping at scale without manual intervention, configure a rotating residential proxy in your `.env` file:
+```env
+PROXY_SERVER=http://your-proxy-provider.com:8000
+PROXY_USERNAME=your_username
+PROXY_PASSWORD=your_password
+```
 
 ---
 
