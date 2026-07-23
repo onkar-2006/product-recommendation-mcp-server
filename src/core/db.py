@@ -31,19 +31,25 @@ CREATE INDEX IF NOT EXISTS idx_details_created ON details_cache(created_at);
 """
 
 def init_db_sync() -> None:
-    """Synchronous database connection setup and table creation."""
+    """Synchronous database connection setup and table creation with write capability checks."""
     db_path = settings.sqlite_db_path
     
-    # Ensure parent data directory exists
-    db_dir = os.path.dirname(db_path)
+    # 1. Verify if the database directory is writable by attempting a quick connection and write test
     try:
+        db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
+        # Attempt connection and a temporary table write
+        test_conn = sqlite3.connect(db_path)
+        test_conn.execute("CREATE TABLE IF NOT EXISTS write_test (id INT);")
+        test_conn.execute("DROP TABLE write_test;")
+        test_conn.close()
     except Exception as e:
-        logger.warning(f"Could not create database directory {db_dir}: {e}. Falling back to /tmp/mcp_cache.db")
+        logger.warning(f"SQLite database path {db_path} is not writable ({e}). Redirecting to /tmp/mcp_cache.db")
         settings.sqlite_db_path = "/tmp/mcp_cache.db"
         db_path = settings.sqlite_db_path
         
+    # 2. Perform actual table initialization
     try:
         conn = sqlite3.connect(db_path)
         # Disable WAL for container overlay filesystem compatibility
@@ -53,7 +59,7 @@ def init_db_sync() -> None:
             conn.executescript(DB_INITIALIZATION_SQL)
             
         conn.close()
-        logger.info(f"SQLite database initialized successfully at {db_path} in WAL mode.")
+        logger.info(f"SQLite database initialized successfully at {db_path} in DELETE mode.")
     except Exception as e:
         logger.error(f"Failed to initialize SQLite database at {db_path}: {e}")
         raise DatabaseError(f"Database initialization failed: {e}")
