@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 from config.settings import settings
 from src.core.logger import logger
 from src.core.db import init_db
-from src.core.browser import browser_manager
+from src.core.browser import browser_manager, ensure_playwright_chromium
 from src.schemas.product import Product, CompareResult, ProductDetails
 from src.tools.search import search_products_logic
 from src.tools.compare import compare_prices_logic
@@ -22,6 +22,8 @@ from src.tools.details import get_product_details_logic
 async def app_lifespan(server: FastMCP):
     """Initializes system dependencies on startup and cleans them up on shutdown."""
     logger.info("Starting up ECommerce MCP Server...")
+    # Ensure Playwright browser binaries are present
+    ensure_playwright_chromium()
     # Init Cache DB tables
     await init_db()
     # Warm up browser manager/process

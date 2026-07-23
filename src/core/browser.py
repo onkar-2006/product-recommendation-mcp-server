@@ -8,6 +8,40 @@ from config.settings import settings
 from src.core.logger import logger
 from src.core.exceptions import BrowserInitializationError
 
+def ensure_playwright_chromium() -> None:
+    """Auto-detects and installs the Playwright Chromium binary if missing (required for serverless cloud environments)."""
+    import os
+    import subprocess
+    import sys
+    
+    # Check ~/.cache/ms-playwright/ for chromium binaries
+    home = os.path.expanduser("~")
+    cache_path = os.path.join(home, ".cache", "ms-playwright")
+    
+    has_chromium = False
+    if os.path.exists(cache_path):
+        for root, dirs, files in os.walk(cache_path):
+            if "chrome-linux" in root or "chrome" in files or "chrome.exe" in files:
+                has_chromium = True
+                break
+                
+    if not has_chromium:
+        logger.info("Playwright Chromium browser binary not found in cache. Auto-installing...")
+        try:
+            # Invokes 'playwright install chromium' using the current Python execution context
+            result = subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "chromium"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            logger.info("Playwright Chromium browser installed successfully.")
+        except Exception as e:
+            logger.error(f"Failed to auto-install Playwright Chromium: {e}")
+    else:
+        logger.info("Playwright Chromium browser binary already verified in cache.")
+
 # List of modern, realistic user agents for rotation
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
