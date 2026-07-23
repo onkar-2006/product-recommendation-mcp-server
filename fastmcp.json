@@ -1,0 +1,25 @@
+{
+  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/v1.json",
+  "source": {
+    "path": "src/main.py",
+    "entrypoint": "mcp"
+  },
+  "environment": {
+    "dependencies": [
+      "fastmcp",
+      "playwright",
+      "pydantic",
+      "pydantic-settings",
+      "structlog",
+      "tenacity",
+      "aiocache",
+      "uvicorn",
+      "python-dotenv"
+    ]
+  },
+  "deployment": {
+    "transport": "http",
+    "port": 8000,
+    "log_level": "INFO"
+  }
+}

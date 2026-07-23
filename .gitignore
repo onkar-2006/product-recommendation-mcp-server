@@ -1,0 +1,45 @@
+# Python files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE configurations
+.vscode/
+.idea/
+
+# Local cache databases & logs
+data/*.db
+data/*.db-journal
+data/*.db-wal
+logs/*.log
+.env
+
+# Testing Cache
+.pytest_cache/
+.coverage
+htmlcov/
