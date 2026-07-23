@@ -2,6 +2,7 @@ import sys
 import os
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 
 # Resolve pythonpath mapping when running or inspecting this script directly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -16,8 +17,26 @@ from src.tools.search import search_products_logic
 from src.tools.compare import compare_prices_logic
 from src.tools.details import get_product_details_logic
 
-# Create the primary FastMCP Server instance
-mcp = FastMCP("ECommerce-MCP-Server")
+@asynccontextmanager
+async def app_lifespan(server: FastMCP):
+    """Initializes system dependencies on startup and cleans them up on shutdown."""
+    logger.info("Starting up ECommerce MCP Server...")
+    # Init Cache DB tables
+    await init_db()
+    # Warm up browser manager/process
+    try:
+        await browser_manager.get_browser()
+        logger.info("Stealth Browser Pool pre-warmed successfully.")
+    except Exception as e:
+        logger.critical(f"FATAL: Browser manager failed to warm up on startup: {e}")
+        
+    yield
+    
+    logger.info("Shutting down ECommerce MCP Server...")
+    await browser_manager.close()
+
+# Create the primary FastMCP Server instance with lifespan context
+mcp = FastMCP("ECommerce-MCP-Server", lifespan=app_lifespan)
 
 # 1. MCP Tools Registrations
 
@@ -59,27 +78,7 @@ async def get_product_details(
         logger.error(f"Error in get_product_details tool: {e}")
         raise
 
-# 2. Lifecycle Hooks
-
-@mcp.on_startup()
-async def on_startup():
-    """Initializes system dependencies: SQLite schema generation and headless browser pool warm up."""
-    logger.info("Starting up ECommerce MCP Server lifecycle hooks...")
-    
-    # Init Cache DB tables
-    await init_db()
-    
-    # Warm up browser manager/process
-    try:
-        await browser_manager.get_browser()
-    except Exception as e:
-        logger.critical(f"FATAL: Browser manager failed to warm up on startup: {e}")
-
-@mcp.on_shutdown()
-async def on_shutdown():
-    """Performs graceful cleanup on server termination."""
-    logger.info("Shutting down ECommerce MCP Server lifecycle hooks...")
-    await browser_manager.close()
+# Lifecycle events managed by app_lifespan context manager above
 
 # 3. Main CLI Runner
 
