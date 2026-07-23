@@ -42,8 +42,12 @@ def ensure_playwright_chromium() -> None:
                 check=True
             )
             logger.info("Playwright Chromium browser installed successfully.")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to auto-install Playwright Chromium (exit code {e.returncode}).")
+            logger.error(f"Playwright Install STDOUT: {e.stdout}")
+            logger.error(f"Playwright Install STDERR: {e.stderr}")
         except Exception as e:
-            logger.error(f"Failed to auto-install Playwright Chromium: {e}")
+            logger.error(f"Unexpected error during Playwright Chromium installation: {e}")
     else:
         logger.info(f"Playwright Chromium browser binary already verified in {cache_path}.")
 
