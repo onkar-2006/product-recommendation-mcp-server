@@ -8,6 +8,40 @@ This server is designed for dual deployment modes:
 
 ---
 
+## 📐 Production Architecture Overview
+
+The system is split into clear architectural layers to enforce separation of concerns, scalability, and testability.
+
+```mermaid
+graph TD
+    Client[MCP Client: Cursor / Claude / Custom SSE Client] --> |STDIO / SSE| Entrypoint[MCP Server Layer: FastMCP]
+    Entrypoint --> Auth[Auth & Rate Limiting Middleware]
+    Auth --> Tools[MCP Tools: search, compare, details]
+    Tools --> Cache[Caching Layer: SQLite / Redis]
+    Cache --> ScraperManager[Scraper Coordinator]
+    
+    subgraph Scraping Engine
+        ScraperManager --> |Parallel Tasks| AmazonScraper[Amazon Scraper]
+        ScraperManager --> FlipkartScraper[Flipkart Scraper]
+        ScraperManager --> MeeshoScraper[Meesho Scraper]
+        ScraperManager --> MyntraScraper[Myntra Scraper]
+    end
+    
+    subgraph Browser Management Pool
+        AmazonScraper & FlipkartScraper & MeeshoScraper & MyntraScraper --> BrowserPool[Browser Context Pool]
+        BrowserPool --> |Semaphore Throttled| PW[Playwright Chromium Instances]
+        PW --> Proxies[Rotating Proxy Gateway]
+    end
+    
+    subgraph System & Operations
+        Logger[Structured Logger: STDERR / Files]
+        Metrics[Prometheus Metrics Engine]
+        SignalHandler[SIGTERM / SIGINT Cleanup]
+    end
+```
+
+---
+
 ## 🛠️ Features
 
 *   **Dual Protocol Support**: Instantly switch between STDIO (local) and SSE (Server-Sent Events over HTTP).
@@ -80,43 +114,87 @@ cp .env.example .env
 
 ---
 
-## 🖥️ Running Locally
+## 🖥️ Running Locally (Offline Mode)
 
-### A. Local STDIO Transport (Default)
-In STDIO mode, logs write strictly to `logs/mcp.log` and `sys.stderr` to keep `stdout` clean for JSON-RPC messages.
+Running the server locally on your own machine is the recommended way to use it, as it avoids any serverless resource limits (like `/tmp` storage capacity) and runs with full filesystem write privileges.
 
-To launch or debug locally using the MCP Inspector:
+### Step 1: Initialize Local Virtual Environment
+Ensure your virtual environment is created, activated, and all dependencies are installed:
 ```bash
-npx @modelcontextprotocol/inspector .venv/bin/python -m src.main --transport stdio
-# (On Windows, replace with .venv/Scripts/python -m src.main --transport stdio)
+# Create the virtual environment
+python -m venv .venv
+
+# Activate the virtual environment
+# Windows (PowerShell):
+& .venv/Scripts/Activate.ps1
+# Windows (cmd):
+.venv\Scripts\activate.bat
+# macOS/Linux:
+source .venv/bin/activate
+
+# Install the dependencies (including Playwright)
+pip install -r requirements.txt
+
+# Install Playwright Chromium binaries locally
+playwright install chromium
 ```
 
-To integrate with **Claude Desktop**, add the following block to your `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "ecommerce-mcp": {
-      "command": "python",
-      "args": ["-m", "src.main", "--transport", "stdio"],
-      "cwd": "C:/path/to/ecommerce-mcp",
-      "env": {
-        "HEADLESS": "true"
-      }
-    }
-  }
-}
+### Step 2: Set up Local Environment Variables
+Create a `.env` file in the root of the project to set up your keys:
+```env
+GROQ_API_KEY=your_groq_api_key_here
+# Optional configuration parameters:
+HEADLESS=true
+PORT=8000
 ```
 
-### B. Deployed SSE/HTTP Transport
-Launches an HTTP server (Uvicorn) hosting the SSE endpoint at `http://localhost:8000/sse`.
+### Step 3: Run the Server Locally
 
+#### Option A: Running as an HTTP/SSE Service (Port 8000)
+To run the server as an HTTP/SSE web service that you can query via HTTP requests or local test clients:
 ```bash
-python -m src.main --transport sse --port 8000
+# Windows:
+.venv\Scripts\python.exe src/main.py --transport sse --port 8000
+
+# macOS/Linux:
+.venv/bin/python src/main.py --transport sse --port 8000
 ```
-Verify the server status:
+This will launch Uvicorn hosting the stateless SSE endpoint on `http://localhost:8000/mcp`. You can test it locally using:
 ```bash
-curl http://localhost:8000/health
+# Run local client test script
+.venv\Scripts\python.exe test_client.py
 ```
+
+#### Option B: Connecting to Claude Desktop (Local STDIO Mode)
+To integrate this local server directly into **Claude Desktop**:
+1. Open your Claude Desktop configuration file:
+   * Windows path: `%APPDATA%\Claude\claude_desktop_config.json`
+   * macOS path: `~/Library/Application Support/Claude/claude_desktop_config.json`
+2. Add the local server path to the config:
+   ```json
+   {
+     "mcpServers": {
+       "ecommerce-scraper-local": {
+         "command": "c:\\Users\\DELL\\Desktop\\Ecommerce-mcp\\.venv\\Scripts\\python.exe",
+         "args": ["c:\\Users\\DELL\\Desktop\\Ecommerce-mcp\\src\\main.py", "--transport", "stdio"],
+         "env": {
+           "GROQ_API_KEY": "your_groq_api_key_here"
+         }
+       }
+     }
+   }
+   ```
+3. Restart Claude Desktop. The tools will show up in the prompt box!
+
+#### Option C: Connecting to Cursor (Local STDIO Mode)
+To add this local server to **Cursor**:
+1. Open Cursor and go to **Settings** -> **Features** -> **MCP**.
+2. Click **+ Add New MCP Server**.
+3. Fill in the details:
+   * **Name**: `ecommerce-local`
+   * **Type**: `command`
+   * **Command**: `c:\Users\DELL\Desktop\Ecommerce-mcp\.venv\Scripts\python.exe c:\Users\DELL\Desktop\Ecommerce-mcp\src\main.py --transport stdio`
+4. Click **Save**.
 
 ---
 
